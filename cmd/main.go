@@ -1,16 +1,24 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"time"
 
 	"github.com/IBM/sarama"
+	"github.com/PNYwise/post-consumer/internal/config"
+	"github.com/PNYwise/post-consumer/internal/domain"
+	post_consumer "github.com/PNYwise/post-consumer/proto"
 	"github.com/golang/protobuf/ptypes/empty"
-	"github.com/jcmturner/gokrb5/v8/config"
+	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func main() {
@@ -31,7 +39,7 @@ func main() {
 	log.Println("Connected to Config Service gRPC server")
 
 	// Create a gRPC client
-	client := social_media_proto.NewConfigClient(grpcConn)
+	client := post_consumer.NewConfigClient(grpcConn)
 	// Create metadata
 
 	// Add metadata to the context
@@ -51,7 +59,9 @@ func main() {
 	}
 
 	// Kafka broker address
-	brokerList := []string{"127.0.0.1:9092"}
+	brokerList := []string{
+		fmt.Sprintf("%s:%d", extConf.Kafka.Host, extConf.Kafka.Port),
+	}
 
 	// Create a new Kafka consumer
 	config := sarama.NewConfig()
@@ -66,12 +76,10 @@ func main() {
 	}()
 
 	// Kafka topic to consume messages from
-	topic := "post"
-	partition := int32(0)
 	offset := int64(sarama.OffsetNewest)
 
 	// Create a partition consumer for the given topic, partition, and offset
-	partitionConsumer, err := consumer.ConsumePartition(topic, partition, offset)
+	partitionConsumer, err := consumer.ConsumePartition(extConf.Kafka.Topic, extConf.Kafka.Partition, offset)
 	if err != nil {
 		log.Fatalf("Error creating partition consumer: %v", err)
 	}
@@ -80,6 +88,8 @@ func main() {
 			log.Fatalf("Error closing partition consumer: %v", err)
 		}
 	}()
+
+	log.Println("Post Consumer Run...")
 
 	// Wait for messages and print them
 	signals := make(chan os.Signal, 1)
@@ -97,4 +107,21 @@ ConsumerLoop:
 			break ConsumerLoop
 		}
 	}
+}
+
+func createMetadataContext(conf *viper.Viper) context.Context {
+	// Add metadata to the context
+	return metadata.NewOutgoingContext(context.Background(), metadata.New(map[string]string{
+		"id":    conf.GetString("id"),
+		"token": conf.GetString("token"),
+	}))
+}
+
+func parseConfigResponse(response *structpb.Value) (*domain.ExtConf, error) {
+	extConf := &domain.ExtConf{}
+	if stringVal, ok := response.Kind.(*structpb.Value_StringValue); ok {
+		err := json.Unmarshal([]byte(stringVal.StringValue), extConf)
+		return extConf, err
+	}
+	return nil, nil
 }
