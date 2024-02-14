@@ -4,11 +4,52 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/IBM/sarama"
+	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/jcmturner/gokrb5/v8/config"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
+	// Set time.Local to time.UTC
+	time.Local = time.UTC
+
+	// Load configuration
+	conf := config.New()
+
+	// Dial the gRPC server
+	grpcConn, err := grpc.Dial(
+		conf.GetString("config-service.host")+":"+conf.GetString("config-service.port"),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		log.Fatalf("Failed to connect to Config Service gRPC server: %v", err)
+	}
+	log.Println("Connected to Config Service gRPC server")
+
+	// Create a gRPC client
+	client := social_media_proto.NewConfigClient(grpcConn)
+	// Create metadata
+
+	// Add metadata to the context
+	ctx := createMetadataContext(conf)
+
+	// Call the Get method on the server
+	response, err := client.Get(ctx, &empty.Empty{})
+	if err != nil {
+		log.Fatalf("Error calling Get: %v", err)
+	}
+	grpcConn.Close()
+
+	// Parse the response
+	extConf, err := parseConfigResponse(response)
+	if err != nil {
+		log.Fatalf("Error unmarshaling configuration: %v", err)
+	}
+
 	// Kafka broker address
 	brokerList := []string{"127.0.0.1:9092"}
 
