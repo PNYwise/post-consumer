@@ -79,13 +79,20 @@ func main() {
 	offset := int64(sarama.OffsetNewest)
 
 	// Create a partition consumer for the given topic, partition, and offset
-	partitionConsumer, err := consumer.ConsumePartition(extConf.Kafka.Topic, extConf.Kafka.Partition, offset)
+	partitionConsumer, err := consumer.ConsumePartition(extConf.Kafka.Topic[0], extConf.Kafka.Partition, offset)
+	if err != nil {
+		log.Fatalf("Error creating partition consumer: %v", err)
+	}
+	partitionConsumer2, err := consumer.ConsumePartition(extConf.Kafka.Topic[1], extConf.Kafka.Partition, offset)
 	if err != nil {
 		log.Fatalf("Error creating partition consumer: %v", err)
 	}
 	defer func() {
 		if err := partitionConsumer.Close(); err != nil {
 			log.Fatalf("Error closing partition consumer: %v", err)
+		}
+		if err := partitionConsumer2.Close(); err != nil {
+			log.Fatalf("Error closing partition 2 consumer: %v", err)
 		}
 	}()
 
@@ -101,7 +108,12 @@ ConsumerLoop:
 		case msg := <-partitionConsumer.Messages():
 			log.Printf("Received message: %s", msg.Value)
 			// TODO: save data into database
+		case msg := <-partitionConsumer2.Messages():
+			log.Printf("Received message: %s", msg.Value)
+			// TODO: save data into database
 		case err := <-partitionConsumer.Errors():
+			log.Printf("Error consuming message: %v", err)
+		case err := <-partitionConsumer2.Errors():
 			log.Printf("Error consuming message: %v", err)
 		case <-signals:
 			break ConsumerLoop
